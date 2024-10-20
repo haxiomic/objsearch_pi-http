@@ -302,6 +302,85 @@ int objsearch_pi::Init()
         m_pThread = NULL;
     }
 
+    // start http server
+    auto httpThread = std::thread([&]() {
+        m_httpServer.Get("/", [](const httplib::Request& req, httplib::Response& res) {
+            res.set_content("Hello World! From Object Search Plugin", "text/plain");
+        });
+
+        m_httpServer.Get("/search", [&](const httplib::Request& req, httplib::Response& res) {
+            const wxString feature = req.get_param_value("feature").c_str();
+            const wxString search_string = req.get_param_value("name").c_str();
+            if (search_string.IsEmpty()) {
+                res.set_content("No name parameter provided", "text/plain");
+                return;
+            }
+
+            double dist = 0;
+            if (req.has_param("dist")) {
+                dist = wxAtof(req.get_param_value("dist").c_str());
+            }
+
+            auto csv = FetchSearchResultsFromDBAsCSV(feature, search_string, GetLat(), GetLon(), dist);
+            
+            const char* cstr = csv.mb_str();
+            res.set_content(cstr, "text/plain");
+        });
+
+        // SQL query endpoint
+        m_httpServer.Get("/query", [&](const httplib::Request& req, httplib::Response& res) {
+            try {
+                wxString query = req.get_param_value("sql").c_str();
+                if (query.IsEmpty()) {
+                    res.set_content("No sql parameter provided", "text/plain");
+                    return;
+                }
+
+                wxSQLite3ResultSet set;
+                try {
+                    set = SelectFromDB(m_db, query);
+                } catch (wxSQLite3Exception& e) {
+                    // Close/reset any failed statement to clear the error
+                    m_db->ExecuteUpdate("ROLLBACK;");
+                    m_bDBUsable = true;
+                    wxString msg = wxString::Format(
+                        wxT("DB Exception: %i : %s"), e.GetErrorCode(), e.GetMessage().c_str());
+                    const char* cstr = msg.mb_str();
+                    res.set_content(cstr, "text/plain");
+                    return;
+                }
+
+                wxString result = wxT("");
+                while (set.NextRow()) {
+                    for (int i = 0; i < set.GetColumnCount(); i++) {
+                        result += set.GetAsString(i);
+                        result += wxT(" ");
+                    }
+                    result += wxT("\n");
+                }
+                set.Finalize();  // Always finalize
+
+                const char* cstr = result.mb_str();
+                res.set_content(cstr, "text/plain");
+            } catch (wxSQLite3Exception& e) {
+                wxString msg = wxString::Format(
+                    wxT("DB Exception: %i : %s"), e.GetErrorCode(), e.GetMessage().c_str());
+                const char* cstr = msg.mb_str();
+                res.set_content(cstr, "text/plain");
+
+                // Optional: Reset/rollback in case of higher-level errors
+                m_db->ExecuteUpdate("ROLLBACK;");
+                m_bDBUsable = true;
+            } catch (...) {
+                res.set_content("Unknown exception", "text/plain");
+            }
+        });
+
+        m_httpServer.listen("0.0.0.0", 8883);
+    });
+
+    httpThread.detach(); // Detach the thread to allow it to run independently
+
     return (WANTS_ONPAINT_VIEWPORT | WANTS_TOOLBAR_CALLBACK
         | INSTALLS_TOOLBAR_TOOL | WANTS_CONFIG | WANTS_NMEA_EVENTS
         | WANTS_PREFERENCES | WANTS_VECTOR_CHART_OBJECT_INFO);
@@ -557,6 +636,7 @@ int objsearch_pi::GetFeatureId(wxString feature)
         return m_featuresInDb[feature];
 }
 
+/*
 void objsearch_pi::FindObjects(const wxString& feature_filter,
     const wxString& search_string, double lat, double lon, double dist)
 {
@@ -639,6 +719,149 @@ void objsearch_pi::FindObjects(const wxString& feature_filter,
             set.Finalize();
         }
     }
+}
+*/
+
+void objsearch_pi::FindObjects(const wxString& feature_filter,
+    const wxString& search_string, double lat, double lon, double dist)
+{
+    if (!m_bDBUsable) {
+        wxMessageBox(_("There is a problem with your database, check the "
+                       "OpenCPN logfile for more information."));
+        return;
+    }
+
+    int objects_found = GetObjectCountFromDB(feature_filter, search_string, lat, lon, dist);
+    if (objects_found < 0) return; // Error case
+
+    int show = wxYES;
+    if (objects_found > 1000) {
+        show = wxMessageBox(
+            wxString::Format(
+                _("Your search resulted in %i objects found. This is a lot, do "
+                  "you really want to show all of them?"),
+                objects_found),
+            _("Too many objects found"), wxYES_NO | wxCENTER);
+    }
+    
+    if (show == wxYES) {
+        std::vector<ObjectInfo> results = FetchSearchResultsFromDB(feature_filter, search_string, lat, lon, dist);
+        m_pObjSearchDialog->ClearObjects();
+        for (const auto& obj : results) {
+            m_pObjSearchDialog->AddObject(obj.featurename, obj.objname, obj.lat, obj.lon, 
+                                          toUsrDistance_Plugin(obj.distance), obj.scale, 
+                                          obj.nativescale, obj.chartname);
+        }
+        m_pObjSearchDialog->SortResults();
+    }
+}
+
+int objsearch_pi::GetObjectCountFromDB(const wxString& feature_filter,
+    const wxString& search_string, double lat, double lon, double dist)
+{
+    wxString safe_value = search_string;
+    safe_value.Replace(_T("'"), _T("''"));
+    wxSQLite3ResultSet set;
+
+    wxString feature_condition = !feature_filter.IsEmpty() ? 
+        wxString::Format("instr('%s', featurename) > 0 AND ", feature_filter.c_str()) : wxT("");
+
+    if (dist > 0.1) {
+        set = SelectFromDB(m_db,
+            wxString::Format(
+                wxT("SELECT COUNT(*) FROM object o LEFT JOIN feature f ON "
+                    "(o.feature_id = f.id) WHERE %sobjname LIKE '%%%s%%' AND "
+                    "distanceMercator(lat, lon, %f, %f) <= %f"),
+                feature_condition, safe_value.c_str(), lat, lon, dist));
+    } else {
+        set = SelectFromDB(m_db,
+            wxString::Format(
+                wxT("SELECT COUNT(*) FROM object o LEFT JOIN feature f ON "
+                    "(o.feature_id = f.id) WHERE %sobjname LIKE '%%%s%%'"),
+                feature_condition, safe_value.c_str()));
+    }
+
+    int objects_found = 0;
+    if (m_bDBUsable) {
+        objects_found = set.GetInt(0);
+    }
+    set.Finalize();
+    return objects_found;
+}
+
+std::vector<ObjectInfo> objsearch_pi::FetchSearchResultsFromDB(const wxString& feature_filter,
+    const wxString& search_string, double lat, double lon, double dist)
+{
+    std::vector<ObjectInfo> results;
+    wxString safe_value = search_string;
+    safe_value.Replace(_T("'"), _T("''"));
+    wxSQLite3ResultSet set;
+
+    wxString feature_condition = !feature_filter.IsEmpty() ? 
+        wxString::Format("instr('%s', featurename) > 0 AND ", feature_filter.c_str()) : wxT("");
+
+    if (dist > 0.1) {
+        set = SelectFromDB(m_db,
+            wxString::Format(
+                wxT("SELECT f.featurename, o.objname, o.lat, o.lon, "
+                    "ch.scale, ch.nativescale, ch.chartname, "
+                    "distanceMercator(lat, lon, %f, %f) "
+                    "FROM object o LEFT JOIN feature f ON "
+                    "(o.feature_id = f.id) LEFT "
+                    "JOIN chart ch ON (o.chart_id = ch.id) WHERE %s"
+                    "objname LIKE '%%%s%%' AND "
+                    "distanceMercator(lat, lon, %f, %f) <= %f"),
+                lat, lon, feature_condition, safe_value.c_str(),
+                lat, lon, dist));
+    } else {
+        set = SelectFromDB(m_db,
+            wxString::Format(
+                wxT("SELECT f.featurename, o.objname, o.lat, o.lon, "
+                    "ch.scale, ch.nativescale, ch.chartname, "
+                    "distanceMercator(lat, lon, %f, %f) FROM object o "
+                    "LEFT JOIN feature f ON (o.feature_id = f.id) LEFT "
+                    "JOIN chart ch ON (o.chart_id = ch.id) WHERE %s"
+                    "objname LIKE '%%%s%%'"),
+                lat, lon, feature_condition, safe_value.c_str()));
+    }
+
+    if (m_bDBUsable) {
+        while (set.NextRow()) {
+            ObjectInfo obj;
+            obj.featurename = set.GetAsString(0);
+            obj.objname = set.GetAsString(1);
+            obj.lat = set.GetDouble(2);
+            obj.lon = set.GetDouble(3);
+            obj.scale = set.GetDouble(4);
+            obj.nativescale = set.GetInt(5);
+            obj.chartname = set.GetAsString(6);
+            obj.distance = set.GetDouble(7);
+
+            results.push_back(obj);
+        }
+    }
+    set.Finalize();
+    return results;
+}
+
+wxString objsearch_pi::FetchSearchResultsFromDBAsCSV(const wxString& feature_filter,
+    const wxString& search_string, double lat, double lon, double dist)
+{
+    // Fetch results from the database
+    std::vector<ObjectInfo> results = FetchSearchResultsFromDB(feature_filter, search_string, lat, lon, dist);
+
+    // Create the CSV string with a header
+    wxString csv;
+    csv << "Feature Name,Object Name,Latitude,Longitude,Scale,Native Scale,Chart Name,Distance\n";
+
+    // Iterate through the results and format each row as CSV
+    for (const auto& obj : results) {
+        csv << wxString::Format("%s,%s,%f,%f,%f,%d,%s,%f\n",
+            obj.featurename, obj.objname, obj.lat, obj.lon,
+            obj.scale, obj.nativescale, obj.chartname, obj.distance);
+    }
+
+    return csv;
 }
 
 double objsearch_pi::CalculatePPM(float scale)

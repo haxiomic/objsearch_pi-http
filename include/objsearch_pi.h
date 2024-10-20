@@ -43,6 +43,8 @@
 
 #include "ObjSearchDialog.h"
 
+#include "httplib.h"
+
 // Define NAN, which is unavailable on Windows
 #ifdef _MSC_VER
 #define INFINITY (DBL_MAX + DBL_MAX)
@@ -129,6 +131,17 @@ private:
     objsearch_pi* p_plugin;
     wxProgressDialog* m_prgdlg;
     int m_iProcessed;
+};
+
+struct ObjectInfo {
+    wxString featurename;
+    wxString objname;
+    double lat;
+    double lon;
+    double scale;
+    int nativescale;
+    wxString chartname;
+    double distance;
 };
 
 class ObjSearchDialogImpl : public ObjSearchDialog {
@@ -228,6 +241,15 @@ public:
     void FindObjects(const wxString& feature_filter,
         const wxString& search_string, double lat, double lon, double dist);
 
+    int GetObjectCountFromDB(const wxString& feature_filter,
+        const wxString& search_string, double lat, double lon, double dist);
+    
+    std::vector<ObjectInfo> FetchSearchResultsFromDB(const wxString& feature_filter,
+        const wxString& search_string, double lat, double lon, double dist);
+    
+    wxString FetchSearchResultsFromDBAsCSV(const wxString& feature_filter,
+        const wxString& search_string, double lat, double lon, double dist);
+
     bool GetAutoClose() { return m_bCloseOnShow; }
     int GetRangeLimit() { return m_iLimitRange; }
     void SetAutoClose(bool val) { m_bCloseOnShow = val; }
@@ -265,6 +287,9 @@ protected:
 private:
     bool LoadConfig();
     bool SaveConfig();
+
+    httplib::Server m_httpServer;
+
     bool m_db_thread_running;
 
     bool m_bCloseOnShow;
