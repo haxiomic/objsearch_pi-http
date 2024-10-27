@@ -1,3 +1,18 @@
+# HTTP Server
+
+- Return all objects (these are objects loaded by the plotter at least once)
+http://localhost:8883/search
+
+- Filter within radius in nautical miles (e.g 5 NMi) `dist_nm`
+http://localhost:8883/search?dist_nm=5
+
+- Filter by feature acronym `feature`
+http://localhost:8883/search?feature=BOYLAT
+
+- Both together, use & to separate, `feature=BOYLAT&dist_nm=4`, returns all BOYLAT within 4 NMi
+http://localhost:8883/search?feature=BOYLAT&dist_nm=4
+
+
 # Vector Chart Object Search  Plugin for OpenCPN
 
 This plugin provides a search interface to the objects on the vector charts in OpenCPN. Note that it indexes the objects on the charts which were loaded at least once with the plugin enabled.
