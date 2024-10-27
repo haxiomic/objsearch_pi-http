@@ -280,6 +280,9 @@ public:
     void StopScan() { finishing = true; };
 
 protected:
+    void StartHttpThread();
+    void StopHttpThread();
+
     int QueryDB(const wxString& sql) { return QueryDB(m_db, sql); }
     wxString GetQuery();
     bool HasQueries();
