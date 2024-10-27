@@ -1,3 +1,12 @@
+# Todo
+- Rename to new plugin
+
+- Depth information
+- Get all objects within radius ✓
+    => make name optional ✓
+- Get objects by type ✓
+
+
 # Vector Chart Object Search  Plugin for OpenCPN
 
 This plugin provides a search interface to the objects on the vector charts in OpenCPN. Note that it indexes the objects on the charts which were loaded at least once with the plugin enabled.

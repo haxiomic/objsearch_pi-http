@@ -273,6 +273,7 @@ int objsearch_pi::Init()
         = GetDataDir() + "objsearch_pi_rollover.svg";
     wxString _svg_objsearch_toggled = GetDataDir() + "objsearch_pi_toggled.svg";
 
+    /*
     if (m_shown) {
         m_leftclick_tool_id = InsertPlugInToolSVG(_T( "Object Search" ),
             _svg_objsearch_toggled, _svg_objsearch_rollover, _svg_objsearch,
@@ -284,6 +285,7 @@ int objsearch_pi::Init()
             wxITEM_CHECK, _("Object Search"), _T( "" ), nullptr,
             OBJSEARCH_TOOL_POSITION, 0, this);
     }
+    */
 
     m_pObjSearchDialog = new ObjSearchDialogImpl(this, m_parent_window);
 
@@ -368,8 +370,13 @@ bool objsearch_pi::DeInit()
 void objsearch_pi::StartHttpThread() {
     // start http server
     auto httpThread = std::thread([&]() {
-        m_httpServer.Get("/", [](const httplib::Request& req, httplib::Response& res) {
-            res.set_content("Hello World! From Object Search Plugin", "text/plain");
+        m_httpServer.Get("/", [&](const httplib::Request& req, httplib::Response& res) {
+            // log lat, log, cog and sog
+            wxString msg = wxString::Format(
+                wxT("Hello World! From Plugin, Lat: %f, Lon: %f, COG: %f, SOG: %f"), GetLat(), GetLon(), m_boatcog, m_boatsog);
+            const char* cstr = msg.mb_str();
+            // res.set_content("Hello World! From Object Search Plugin", "text/plain");
+            res.set_content(cstr, "text/plain");
         });
 
         m_httpServer.Get("/search", [&](const httplib::Request& req, httplib::Response& res) {
@@ -456,16 +463,16 @@ int objsearch_pi::GetPlugInVersionMinor() { return PLUGIN_VERSION_MINOR; }
 
 wxBitmap* objsearch_pi::GetPlugInBitmap() { return &m_logo; }
 
-wxString objsearch_pi::GetCommonName() { return _T ( "ObjSearch" ); }
+wxString objsearch_pi::GetCommonName() { return _T ( "NavIntelPlugin" ); }
 
 wxString objsearch_pi::GetShortDescription()
 {
-    return _("Vector Chart Object Search PlugIn for OpenCPN");
+    return _("NavIntel Http Server Plugin for OpenCPN");
 }
 
 wxString objsearch_pi::GetLongDescription()
 {
-    return _("Vector Chart Object Search PlugIn for OpenCPN\n\
+    return _("NavIntel Http Server Plugin for OpenCPN\n\
 Provides a search function for the named vector chart objects.");
 }
 
@@ -535,6 +542,8 @@ void objsearch_pi::SetPositionFix(PlugIn_Position_Fix& pfix)
 {
     m_boatlat = pfix.Lat;
     m_boatlon = pfix.Lon;
+    m_boatcog = pfix.Cog;
+    m_boatsog = pfix.Sog;
 }
 
 void objsearch_pi::SendVectorChartObjectInfo(wxString& chart, wxString& feature,

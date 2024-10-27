@@ -24,21 +24,21 @@ set(OCPN_RELEASE_REPO
 #
 # -------  Plugin setup --------
 #
-set(PKG_NAME objsearch_pi)
+set(PKG_NAME navintel_plugin)
 set(PKG_VERSION "0.27.0")
 set(PKG_PRERELEASE "") # Empty, or a tag like 'beta'
 
-set(DISPLAY_NAME objsearch) # Dialogs, installer artifacts, ...
-set(PLUGIN_API_NAME ObjSearch) # As of GetCommonName() in plugin API
-set(PKG_SUMMARY "Chart object search plugin for OpenCPN")
+set(DISPLAY_NAME navintel) # Dialogs, installer artifacts, ...
+set(PLUGIN_API_NAME NavIntelPlugin) # As of GetCommonName() in plugin API
+set(PKG_SUMMARY "NavIntel Http Server Plugin for OpenCPN")
 set(PKG_DESCRIPTION
     [=[
-Vector chart object search  plugin for OpenCPN
+NavIntel Http Server Plugin for OpenCPN
 ]=])
 
 set(PKG_AUTHOR "Pavel Kalian")
 set(PKG_IS_OPEN_SOURCE "yes")
-set(PKG_HOMEPAGE https://github.com/nohal/objsearch_pi)
+set(PKG_HOMEPAGE https://github.com/haxiomic/objsearch_pi-http)
 set(PKG_INFO_URL https://opencpn.org/OpenCPN/plugins/objsearch.html)
 
 option(WITH_TESTS "Whether or not to build the tests" OFF)

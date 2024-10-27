@@ -330,6 +330,8 @@ private:
 
     double m_boatlat;
     double m_boatlon;
+    double m_boatcog;
+    double m_boatsog;
 
     double m_vplat;
     double m_vplon;
